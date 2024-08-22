@@ -1,0 +1,74 @@
+#!/bin/bash
+receiver="$1"
+if [[ -z "$receiver" ]]
+then
+  echo "please provide an email address to send the test results to."
+  echo "usage: ./$(basename $0) <your-email>"
+  exit 1
+fi
+
+cred=$(head -n 1 .env.local)
+if [[ -z "$cred" ]]
+then
+  echo "Please setup sender email credentials in .env.local"
+  echo "Place <your-email>:<your-app-password> in the first line of .env.local"
+  echo "Setup App Password: https://support.google.com/accounts/answer/185833?hl=en"
+  exit 1
+fi
+sender=$(echo $cred | cut -d ":" -f 1)
+pass=$(echo $cred | cut -d ":" -f 2)
+true="<span style=\"color:green\">True</span>"
+false="<span style=\"color:red\">False</span>"
+
+echo "A. Build Test Code and Software Under Test"
+dotnet build -v q --nologo
+
+status=$?
+[[ status -eq 0 ]] && buildResult=$true || buildResult=$false
+
+echo "B. Run Test Code (via a script)"
+dotnet test -v q --no-build --nologo
+status=$?
+[[ status -eq 0 ]] && testResult=$true || testResult=$false
+
+echo "C. Email the status of the Build and the results of running your Test Suite."
+echo "Send Results to: $receiver"
+
+cat << EOF > email
+From: '$sender'
+To: '$receiver'
+Reply-To: '$receiver'
+Subject: 'Platformer2D Build & Test Results'
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+<html>
+  <body>
+    <p>
+    $(date)
+    <br>
+    Did Build succeed: $buildResult
+    <br>
+    Did Tests Pass: $testResult
+    <br>
+    </p>
+  </body>
+</html>
+EOF
+
+curl --ssl-reqd \
+  --url 'smtps://smtp.gmail.com:465' \
+  --user $sender:$pass \
+  --mail-from $sender \
+  --mail-rcpt $receiver \
+  --upload-file email
+status=$?
+
+rm -rf email
+
+if [[ status -eq 0 ]]
+then
+  echo "Email sent successfully to $receiver"
+else
+  echo "Failed to send email. Make sure you have configured your google email with app password."
+  echo "https://support.google.com/accounts/answer/185833?hl=en"
+fi
